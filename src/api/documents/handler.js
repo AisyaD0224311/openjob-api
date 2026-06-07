@@ -1,68 +1,155 @@
-const path = require('path');
+const fileUploadValidator = require('../../utils/fileUploadValidator');
+const ClientError = require('../../exceptions/ClientError');
 
 class DocumentsHandler {
-  constructor(service) {
-    this._service = service;
-
-    this.postDocumentHandler = this.postDocumentHandler.bind(this);
-    this.getDocumentsHandler = this.getDocumentsHandler.bind(this);
+  constructor(documentsService) {
+    this._documentsService = documentsService;
+    this.postUploadDocumentHandler = this.postUploadDocumentHandler.bind(this);
     this.getDocumentByIdHandler = this.getDocumentByIdHandler.bind(this);
+    this.getDocumentsByUserIdHandler = this.getDocumentsByUserIdHandler.bind(this);
+    this.deleteDocumentHandler = this.deleteDocumentHandler.bind(this);
   }
 
-  async postDocumentHandler(req, res, next) {
+  async postUploadDocumentHandler(request, h) {
     try {
-      if (!req.file) {
-        throw new Error('File tidak ditemukan');
+      const { id: userId } = request.auth.credentials;
+      const { file } = request.payload;
+
+      if (!file) {
+        throw new ClientError('File tidak ditemukan. Silakan unggah file PDF.', 400);
       }
 
-      const { name } = req.body;
-      const user_id = req.user.id;
-      const filename = req.file.filename;
-      const filepath = `/uploads/${filename}`;
-      const documentName = name || req.file.originalname;
+      // Validasi file
+      fileUploadValidator.validateFile(file);
 
-      const documentId = await this._service.addDocument({
-        user_id,
-        name: documentName,
-        filename,
-        filepath
+      const uploadedDocument = await this._documentsService.uploadDocument(
+        userId,
+        file,
+        file.filename
+      );
+
+      const response = h.response({
+        status: 'success',
+        message: 'File PDF berhasil diunggah',
+        data: {
+          document: uploadedDocument,
+        },
       });
 
-      res.status(201).json({
+      response.code(201);
+      return response;
+    } catch (error) {
+      if (error instanceof ClientError) {
+        const response = h.response({
+          status: 'fail',
+          message: error.message,
+        });
+        response.code(error.statusCode);
+        return response;
+      }
+      throw error;
+    }
+  }
+
+  async getDocumentByIdHandler(request, h) {
+    try {
+      const { id: userId } = request.auth.credentials;
+      const { id: documentId } = request.params;
+
+      const document = await this._documentsService.getDocumentById(documentId);
+
+      // Verifikasi ownership
+      const isOwner = await this._documentsService.verifyDocumentOwnership(
+        documentId,
+        userId
+      );
+
+      if (!isOwner) {
+        const response = h.response({
+          status: 'fail',
+          message: 'Anda tidak memiliki akses untuk mengambil dokumen ini',
+        });
+        response.code(403);
+        return response;
+      }
+
+      const response = h.response({
         status: 'success',
         data: {
-          id: documentId,
-          filepath
-        }
+          document,
+        },
       });
+      response.code(200);
+      return response;
     } catch (error) {
-      next(error);
+      if (error.message === 'Dokumen tidak ditemukan') {
+        const response = h.response({
+          status: 'fail',
+          message: error.message,
+        });
+        response.code(404);
+        return response;
+      }
+      throw error;
     }
   }
 
-  async getDocumentsHandler(req, res, next) {
+  async getDocumentsByUserIdHandler(request, h) {
     try {
-      const user_id = req.user.id;
-      const documents = await this._service.getDocumentsByUserId(user_id);
-      res.json({
+      const { id: userId } = request.auth.credentials;
+
+      const documents = await this._documentsService.getDocumentsByUserId(userId);
+
+      const response = h.response({
         status: 'success',
-        data: { documents }
+        data: {
+          documents,
+        },
       });
+      response.code(200);
+      return response;
     } catch (error) {
-      next(error);
+      throw error;
     }
   }
 
-  async getDocumentByIdHandler(req, res, next) {
+  async deleteDocumentHandler(request, h) {
     try {
-      const { id } = req.params;
-      const document = await this._service.getDocumentById(id);
-      res.json({
+      const { id: userId } = request.auth.credentials;
+      const { id: documentId } = request.params;
+
+      const isOwner = await this._documentsService.verifyDocumentOwnership(
+        documentId,
+        userId
+      );
+
+      if (!isOwner) {
+        const response = h.response({
+          status: 'fail',
+          message: 'Anda tidak memiliki akses untuk menghapus dokumen ini',
+        });
+        response.code(403);
+        return response;
+      }
+
+      await this._documentsService.deleteDocument(documentId, userId);
+
+      const response = h.response({
         status: 'success',
-        data: { document }
+        message: 'Dokumen berhasil dihapus',
       });
+      response.code(200);
+      return response;
     } catch (error) {
-      next(error);
+      if (error.message.includes('tidak ditemukan')) {
+        const response = h.response({
+          status: 'fail',
+          message: error.message,
+        });
+        response.code(404);
+        return response;
+      }
+      throw error;
     }
   }
 }
