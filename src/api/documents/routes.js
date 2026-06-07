@@ -1,32 +1,25 @@
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const upload = require('../../middlewares/multerMiddleware');
 const authHandler = require('../../middlewares/authHandler');
 
-const uploadDir = path.join(__dirname, '../../../uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ storage });
-
 const createDocumentsRouter = (handler) => {
-  const router = express.Router();
+  const router = require('express').Router();
 
-  router.post('/', authHandler, upload.single('document'), handler.postDocumentHandler);
-  router.get('/', authHandler, handler.getDocumentsHandler);
+  // Upload dokumen PDF (dengan middleware multer dan auth)
+  router.post(
+    '/',
+    authHandler,
+    upload.single('file'),
+    handler.postUploadDocumentHandler
+  );
+
+  // Ambil semua dokumen milik user
+  router.get('/', authHandler, handler.getDocumentsByUserIdHandler);
+
+  // Ambil detail dokumen berdasarkan ID
   router.get('/:id', authHandler, handler.getDocumentByIdHandler);
+
+  // Hapus dokumen
+  router.delete('/:id', authHandler, handler.deleteDocumentHandler);
 
   return router;
 };
