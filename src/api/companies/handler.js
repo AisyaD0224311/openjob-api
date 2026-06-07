@@ -1,3 +1,5 @@
+const { cacheService, setCacheResponse } = require('../../middlewares/cacheMiddleware');
+
 class CompaniesHandler {
   constructor(service) {
     this._service = service;
@@ -38,6 +40,15 @@ class CompaniesHandler {
     try {
       const { id } = req.params;
       const company = await this._service.getCompanyById(id);
+      
+      // Simpan ke cache jika ada cacheKey dari middleware
+      if (req.cacheKey) {
+        await setCacheResponse(req.cacheKey, {
+          status: 'success',
+          data: company
+        });
+      }
+
       res.json({
         status: 'success',
         data: company
@@ -52,6 +63,11 @@ class CompaniesHandler {
       const { id } = req.params;
       const { name, location, description } = req.body;
       await this._service.updateCompanyById(id, { name, location, description });
+      
+      // Invalidate cache untuk company yang diupdate
+      const cacheKey = cacheService.getCompanyCacheKey(id);
+      await cacheService.delete(cacheKey);
+
       res.json({
         status: 'success',
         message: 'Perusahaan berhasil diperbarui'
@@ -65,6 +81,11 @@ class CompaniesHandler {
     try {
       const { id } = req.params;
       await this._service.deleteCompanyById(id);
+      
+      // Invalidate cache untuk company yang dihapus
+      const cacheKey = cacheService.getCompanyCacheKey(id);
+      await cacheService.delete(cacheKey);
+
       res.json({
         status: 'success',
         message: 'Perusahaan berhasil dihapus'
